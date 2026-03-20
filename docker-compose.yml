@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  backend:
+    build: ./server
+    container_name: minichat-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - MONGO_URI=mongodb+srv://chat_ai:8M70ZIcDVNNE6ODK@chat.mxqpmtq.mongodb.net/?appName=Chat
+      - JWT_SECRET=minichat-super-secret-key-2026
+      - PORT=8080
+    restart: unless-stopped

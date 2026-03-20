@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: minichat-api
+    runtime: docker
+    dockerContext: ./server
+    dockerfilePath: ./server/Dockerfile
+    envVars:
+      - key: MONGO_URI
+        sync: false  # À définir manuellement dans le dashboard Render
+      - key: JWT_SECRET
+        sync: false
+      - key: PORT
+        value: 8080

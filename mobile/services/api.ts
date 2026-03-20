@@ -2,11 +2,10 @@
 // Pour trouver votre IP : ifconfig / ip addr (Linux) ou ipconfig (Windows)
 // Expo sur téléphone ne peut pas accéder à "localhost" du PC
 
-const LOCAL_IP = "10.0.2.2"; // Android emulator → PC localhost
-// const LOCAL_IP = "192.168.x.x"; // Remplacez par votre IP locale pour un vrai téléphone
+const LOCAL_IP = "mini-chat-k173.onrender.com";
 
-export const API_URL = `http://${LOCAL_IP}:8080/api`;
-export const WS_URL = `ws://${LOCAL_IP}:8080/ws`;
+export const API_URL = `https://${LOCAL_IP}/api`;
+export const WS_URL = `wss://${LOCAL_IP}/ws`;
 
 export async function registerUser(username: string, email: string, password: string) {
   const res = await fetch(`${API_URL}/register`, {

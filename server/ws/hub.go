@@ -55,22 +55,32 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.Register:
 			h.Clients[client.UserId] = client
-			log.Printf("Nouvel utilisateur connecté: %s\n", client.UserId)
+			log.Printf("Hub: Enregistrement utilisateur %s (Total: %d)\n", client.UserId, len(h.Clients))
 			updateUserStatus(client.UserId, "online")
 			go h.broadcastUserStatus(client.UserId, "online")
 			
 		case client := <-h.Unregister:
 			if existingClient, ok := h.Clients[client.UserId]; ok && existingClient == client {
 				delete(h.Clients, client.UserId)
-				client.Conn.Close()
-				log.Printf("Utilisateur déconnecté: %s\n", client.UserId)
+				close(client.Send)
+				log.Printf("Hub: Désenregistrement utilisateur %s (Restant: %d)\n", client.UserId, len(h.Clients))
 				updateUserStatus(client.UserId, "offline")
 				go h.broadcastUserStatus(client.UserId, "offline")
 			}
 			
 		case message := <-h.Broadcast:
+			// Diffusion non-bloquante pour éviter qu'un client lent ne gèle tout le serveur
 			for _, client := range h.Clients {
-				client.Send <- message
+				select {
+				case client.Send <- message:
+					// Message envoyé avec succès au buffer du client
+				default:
+					// Buffer du client plein (client trop lent), on le débranche proprement
+					log.Printf("Hub: Client %s trop lent, déconnexion forcée\n", client.UserId)
+					delete(h.Clients, client.UserId)
+					close(client.Send)
+					client.Conn.Close()
+				}
 			}
 		}
 	}

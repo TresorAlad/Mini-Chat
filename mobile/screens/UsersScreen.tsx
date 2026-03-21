@@ -29,11 +29,15 @@ export default function UsersScreen({ navigation, route }: any) {
   }, []);
 
   useEffect(() => {
-    if (search.length > 0) {
-      searchUsers(search, token).then(setUsers).catch(console.error);
-    } else {
-      loadUsersAndConvos();
-    }
+    const timer = setTimeout(() => {
+      if (search.length > 0) {
+        searchUsers(search, token).then(setUsers).catch(console.error);
+      } else {
+        loadUsersAndConvos();
+      }
+    }, 400); // Debounce 400ms pour éviter de saturer Render
+
+    return () => clearTimeout(timer);
   }, [search]);
 
   const loadUsersAndConvos = async () => {

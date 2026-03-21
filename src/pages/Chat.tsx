@@ -69,8 +69,8 @@ export default function ChatPage() {
     const loadData = () => {
       Promise.all([getUsers(), getConversations()])
         .then(([u, c]) => {
-          setUsers(u);
-          setConversations(c);
+          setUsers(u || []);
+          setConversations(c || []);
         })
         .catch(console.error);
     };
@@ -198,9 +198,9 @@ export default function ChatPage() {
   useEffect(() => {
     if (!currentUser) return;
     if (searchQuery.length > 0) {
-      searchUsers(searchQuery).then(setUsers).catch(console.error);
+      searchUsers(searchQuery).then(res => setUsers(res || [])).catch(console.error);
     } else {
-      getUsers().then(setUsers).catch(console.error);
+      getUsers().then(res => setUsers(res || [])).catch(console.error);
     }
   }, [searchQuery]);
 
@@ -320,14 +320,14 @@ export default function ChatPage() {
   const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length];
 
   const displayList = [
-    ...conversations.filter(c => c.is_group).map(c => ({
+    ...(conversations || []).filter(c => c.is_group).map(c => ({
       _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true, unread_count: c.unread_count || 0
     })),
-    ...users.map(u => {
-      const convo = conversations.find(c => !c.is_group && c.participants.includes(u._id));
+    ...(users || []).map(u => {
+      const convo = (conversations || []).find(c => !c.is_group && (c.participants || []).includes(u._id));
       return { ...u, unread_count: convo?.unread_count || 0 };
     })
-  ].filter(item => item.username.toLowerCase().includes(searchQuery.toLowerCase()));
+  ].filter(item => (item.username || "").toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
     <div className="flex h-screen bg-background overflow-hidden p-0 md:p-4 gap-4">

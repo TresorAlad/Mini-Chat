@@ -16,6 +16,7 @@
     },
     "android": {
       "package": "com.tresoralad.aquachat",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#A2D2FF"

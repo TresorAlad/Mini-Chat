@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -21,6 +22,7 @@ type Client struct {
 	Conn   *websocket.Conn
 	Send   chan []byte
 	UserId string
+	mu     sync.Mutex
 }
 
 // ReadPump capture les messages entrant venant du frontend.
@@ -152,14 +154,28 @@ func (c *Client) ReadPump() {
 // WritePump est utilisé pour envoyer des messages du Hub vers le Frontend React.
 func (c *Client) WritePump() {
 	defer func() {
-		c.Conn.Close()
+		c.SafeClose()
 	}()
 	for message := range c.Send {
-		err := c.Conn.WriteMessage(websocket.TextMessage, message)
+		err := c.SafeWrite(websocket.TextMessage, message)
 		if err != nil {
 			return
 		}
 	}
+}
+
+// SafeWrite fournit une écriture thread-safe sur la connexion
+func (c *Client) SafeWrite(messageType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteMessage(messageType, data)
+}
+
+// SafeClose fournit une fermeture thread-safe de la connexion
+func (c *Client) SafeClose() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.Close()
 }
 
 // ServeWebSocket met à niveau la requête HTTP de React vers WebSocket

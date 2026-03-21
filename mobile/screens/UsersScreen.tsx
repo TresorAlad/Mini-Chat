@@ -76,8 +76,8 @@ export default function UsersScreen({ navigation, route }: any) {
     if (!refreshing) setLoading(true);
     try {
       const [uRes, cRes] = await Promise.all([getUsers(token), getConversations(token)]);
-      setUsers(uRes);
-      setConversations(cRes);
+      setUsers(uRes || []);
+      setConversations(cRes || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -165,11 +165,11 @@ export default function UsersScreen({ navigation, route }: any) {
   };
 
   const displayList = [
-    ...conversations.filter(c => c.is_group).map(c => ({
+    ...(conversations || []).filter(c => c.is_group).map(c => ({
       _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true, unread_count: c.unread_count || 0
     })),
-    ...users.map(u => {
-      const convo = conversations.find(c => !c.is_group && c.participants.includes(u._id));
+    ...(users || []).map(u => {
+      const convo = (conversations || []).find(c => !c.is_group && c.participants.includes(u._id));
       return { ...u, unread_count: convo?.unread_count || 0 };
     })
   ];

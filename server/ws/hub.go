@@ -94,7 +94,7 @@ func (h *Hub) Run() {
 					log.Printf("Hub: Client %s trop lent, déconnexion forcée\n", client.UserId)
 					delete(h.Clients, client.UserId)
 					close(client.Send)
-					client.Conn.Close()
+					client.SafeClose()
 				}
 			}
 		}

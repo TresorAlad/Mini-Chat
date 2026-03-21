@@ -118,6 +118,10 @@ export default function ChatScreen({ route, navigation }: any) {
         console.log("WS déconnecté, reconnexion...");
         reconnectTimer = setTimeout(connect, 3000);
       };
+
+      ws.onerror = (err: any) => {
+        console.error("WS connection error:", err);
+      };
     };
 
     connect();
@@ -245,8 +249,8 @@ export default function ChatScreen({ route, navigation }: any) {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>

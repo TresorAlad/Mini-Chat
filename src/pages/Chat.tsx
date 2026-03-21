@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Search, Send, MoreVertical, Paperclip, Smile, LogOut,
-  MessageSquarePlus, Settings, Users, Menu, X, UserPlus, ArrowLeft
+  Search, Send, MoreVertical, LogOut, Check, CheckCheck,
+  MessageSquarePlus, Users, Menu, X, UserPlus, ArrowLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getUsers, searchUsers, createOrGetConversation,
-  getMessages, connectWebSocket
+  getMessages, connectWebSocket, getConversations, createGroup
 } from "@/services/api";
 
 type Message = {
@@ -33,8 +33,11 @@ type User = {
 export default function ChatPage() {
   const navigate = useNavigate();
   const currentUser = JSON.parse(localStorage.getItem("user") || "null");
+  // Assure-toi qu'on compare toujours des chaînes de caractères (string) même si le stockage local est corrompu ou obsolète.
+  const currentUserId = currentUser ? String(currentUser._id || currentUser.id) : "";
 
   const [users, setUsers] = useState<User[]>([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [currentConversationId, setCurrentConversationId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,30 +46,62 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showUserSearch, setShowUserSearch] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [selectedGroupUsers, setSelectedGroupUsers] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const currentConversationIdRef = useRef("");
 
   // Redirect if not logged in
   useEffect(() => {
     if (!currentUser) navigate("/");
   }, []);
 
-  // Load users
+  // Load users and conversations
   useEffect(() => {
     if (!currentUser) return;
-    getUsers().then(setUsers).catch(console.error);
+    Promise.all([getUsers(), getConversations()])
+      .then(([u, c]) => {
+        setUsers(u);
+        setConversations(c);
+      })
+      .catch(console.error);
   }, []);
 
   // WebSocket connection
   useEffect(() => {
     if (!currentUser) return;
-    const ws = connectWebSocket(currentUser._id);
+    const ws = connectWebSocket(currentUserId);
     wsRef.current = ws;
     ws.onopen = () => console.log("Connecté au WebSocket ✅");
     ws.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
-        if (payload.sender_id === currentUser._id) return;
+        
+        // Statut en ligne / hors ligne
+        if (payload.type === "user_status") {
+          setUsers(prev => prev.map(u => u._id === payload.user_id ? { ...u, status: payload.status } : u));
+          setSelectedUser(prev => (prev && prev._id === payload.user_id) ? { ...prev, status: payload.status } : prev);
+          return;
+        }
+
+        // Accusé de lecture
+        if (payload.type === "read_receipt") {
+          setMessages((prev) => prev.map(m => 
+            m.conversation_id === payload.conversation_id && String(m.sender_id) === currentUserId 
+              ? { ...m, is_read: true } 
+              : m
+          ));
+          return;
+        }
+
+        // On compare toujours deux string
+        if (String(payload.sender_id) === currentUserId) return;
+        
+        // PROTECTION: Si le vieux serveur renvoie un événement "read" comme un message vide, on l'ignore (bris de la boucle infinie)
+        if (!payload.content) return;
+
         const newMsg: Message = {
           id: payload._id || Date.now().toString(),
           sender_id: payload.sender_id,
@@ -76,6 +111,16 @@ export default function ChatPage() {
           conversation_id: payload.conversation_id,
         };
         setMessages((prev) => [...prev, newMsg]);
+        setConversations((prev) => prev.map(c => 
+          c._id === payload.conversation_id ? { ...c, last_message: payload.content } : c
+        ));
+
+        // Si on est actuellement dans la conversation où le message arrive, on notifie immédiatement qu'on l'a lu!
+        if (payload.conversation_id === currentConversationIdRef.current) {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: "read", conversation_id: payload.conversation_id }));
+          }
+        }
       } catch (err) {
         console.error("Erreur WS:", err);
       }
@@ -99,14 +144,20 @@ export default function ChatPage() {
     }
   }, [searchQuery]);
 
-  const handleSelectUser = async (user: User) => {
+  const handleSelectUser = async (user: any) => {
     setSelectedUser(user);
     setShowUserSearch(false);
     setSidebarOpen(false);
     try {
-      const convo = await createOrGetConversation(user._id);
-      setCurrentConversationId(convo._id);
-      const msgs = await getMessages(convo._id);
+      let convoId = user._id; // Si c'est un groupe, user._id est déjà l'ID de conversation
+      if (!user.is_group) {
+        const convo = await createOrGetConversation(user._id);
+        convoId = convo._id;
+      }
+      setCurrentConversationId(convoId);
+      currentConversationIdRef.current = convoId;
+      
+      const msgs = await getMessages(convoId);
       setMessages(
         msgs.map((m: any) => ({
           id: m._id,
@@ -117,25 +168,53 @@ export default function ChatPage() {
           conversation_id: m.conversation_id,
         }))
       );
+
+      // Notifier le serveur qu'on a lu les messages de ce chat
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "read", conversation_id: convoId }));
+      }
     } catch (err) {
       console.error("Erreur chargement:", err);
     }
   };
 
+  const handleCreateGroup = async () => {
+    if (!groupName.trim() || selectedGroupUsers.length === 0) return;
+    try {
+      const g = await createGroup(groupName, selectedGroupUsers);
+      setConversations(prev => [g, ...prev]);
+      setIsCreatingGroup(false);
+      setGroupName("");
+      setSelectedGroupUsers([]);
+      handleSelectUser({ _id: g._id, username: g.name, email: `${g.participants.length} membres`, status: "online", is_group: true });
+    } catch(err) {
+      console.error(err);
+    }
+  };
+
   const handleSendMessage = (content: string) => {
+    // Évite l'envoi de messages vides
     if (!content.trim() || !currentUser) return;
+    
+    const messageContent = content.trim();
+
     const newMessage: Message = {
       id: Date.now().toString(),
-      sender_id: currentUser._id,
-      content,
+      sender_id: currentUserId,
+      content: messageContent,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       is_read: false,
       conversation_id: currentConversationId,
     };
+    
     setMessages((prev) => [...prev, newMessage]);
+    setConversations((prev) => prev.map(c => 
+      c._id === currentConversationId ? { ...c, last_message: messageContent } : c
+    ));
     setInputValue("");
+    
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ conversation_id: currentConversationId, content }));
+      wsRef.current.send(JSON.stringify({ conversation_id: currentConversationId, content: messageContent }));
     }
   };
 
@@ -155,6 +234,13 @@ export default function ChatPage() {
     "bg-indigo-500", "bg-pink-500", "bg-teal-500",
   ];
   const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length];
+
+  const displayList = [
+    ...conversations.filter(c => c.is_group).map(c => ({
+      _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true
+    })),
+    ...users
+  ].filter(item => item.username.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
     <div className="flex h-screen bg-background overflow-hidden p-0 md:p-4 gap-4">
@@ -212,23 +298,40 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* ─── New Conversation Panel ─── */}
+        {/* ─── New Conversation / Group Panel ─── */}
         {showUserSearch && (
           <div className="px-4 pb-3">
             <div className="bg-primary/5 rounded-2xl p-3 border border-primary/10">
-              <div className="flex items-center gap-2 mb-3">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 rounded-full"
-                  onClick={() => setShowUserSearch(false)}
-                >
-                  <ArrowLeft className="w-4 h-4" />
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full" onClick={() => { setShowUserSearch(false); setIsCreatingGroup(false); }}>
+                    <ArrowLeft className="w-4 h-4" />
+                  </Button>
+                  <p className="text-xs font-semibold text-primary">Nouvelle conversation</p>
+                </div>
+                <Button size="sm" variant={isCreatingGroup ? "default" : "outline"} onClick={() => setIsCreatingGroup(!isCreatingGroup)} className="h-7 text-[10px] rounded-full">
+                  Groupe
                 </Button>
-                <p className="text-xs font-semibold text-primary">Nouvelle conversation</p>
               </div>
-              <p className="text-[11px] text-muted-foreground mb-2 px-1">
-                Sélectionnez un utilisateur pour démarrer une discussion
+              
+              {isCreatingGroup && (
+                <div className="mb-2">
+                  <Input
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    placeholder="Nom du groupe..."
+                    className="h-8 text-xs rounded-xl border-primary/20 bg-white"
+                  />
+                  {selectedGroupUsers.length > 0 && (
+                    <Button onClick={handleCreateGroup} size="sm" className="w-full h-8 mt-2 rounded-xl text-xs">
+                      Créer le groupe ({selectedGroupUsers.length})
+                    </Button>
+                  )}
+                </div>
+              )}
+              
+              <p className="text-[11px] text-muted-foreground px-1">
+                {isCreatingGroup ? "Sélectionnez des membres" : "Sélectionnez un utilisateur"}
               </p>
             </div>
           </div>
@@ -240,13 +343,13 @@ export default function ChatPage() {
             <div className="flex items-center gap-2">
               <Users className="w-3.5 h-3.5 text-muted-foreground" />
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {showUserSearch ? "Tous les utilisateurs" : "Discussions"} ({users.length})
+                {showUserSearch ? (isCreatingGroup ? "Amis" : "Tous") : "Discussions"} ({displayList.length})
               </p>
             </div>
           </div>
           <ScrollArea className="h-full px-3">
             <div className="space-y-1 pb-2">
-              {users.length === 0 ? (
+              {displayList.length === 0 ? (
                 <div className="text-center py-12 px-4">
                   <div className="w-12 h-12 bg-muted/50 rounded-full flex items-center justify-center mx-auto mb-3">
                     <Users className="w-6 h-6 text-muted-foreground/50" />
@@ -257,18 +360,30 @@ export default function ChatPage() {
                   </p>
                 </div>
               ) : (
-                users.map((user) => (
+                displayList.map((user: any) => {
+                  const isSelectedForGroup = selectedGroupUsers.includes(user._id);
+                  return (
                   <div
                     key={user._id}
-                    onClick={() => handleSelectUser(user)}
+                    onClick={() => {
+                      if (isCreatingGroup && !user.is_group) {
+                        setSelectedGroupUsers(prev => isSelectedForGroup ? prev.filter(id => id !== user._id) : [...prev, user._id]);
+                      } else {
+                        handleSelectUser(user);
+                      }
+                    }}
                     className={cn(
-                      "flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all duration-200 group",
+                      "flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all duration-200 group relative",
                       "hover:bg-muted/50",
-                      selectedUser?._id === user._id
-                        ? "bg-secondary/40 border border-primary/20"
-                        : ""
+                      selectedUser?._id === user._id ? "bg-secondary/40 border border-primary/20" : "",
+                      isSelectedForGroup ? "bg-primary/10 border border-primary/30" : ""
                     )}
                   >
+                    {isSelectedForGroup && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-white">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
                     <div className="relative shrink-0">
                       <Avatar className="w-12 h-12 border-2 border-white shadow-sm">
                         <AvatarFallback className={cn(getAvatarColor(user.username), "text-white text-sm font-bold")}>
@@ -280,7 +395,7 @@ export default function ChatPage() {
                         user.status === "online" ? "bg-green-500" : "bg-gray-300"
                       )} />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 pr-6">
                       <div className="flex justify-between items-center mb-0.5">
                         <span className="font-semibold text-sm truncate">{user.username}</span>
                         <span className={cn(
@@ -292,10 +407,13 @@ export default function ChatPage() {
                           {user.status === "online" ? "en ligne" : ""}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {user.is_group ? (conversations.find((c: any) => c._id === user._id)?.last_message || "Groupe créé") : (conversations.find((c: any) => !c.is_group && c.participants.includes(user._id))?.last_message || "Démarrer une discussion")}
+                      </p>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </ScrollArea>
@@ -378,7 +496,7 @@ export default function ChatPage() {
                 </div>
               )}
               {messages.map((msg) => {
-                const isMe = msg.sender_id === currentUser._id;
+                const isMe = String(msg.sender_id) === currentUserId;
                 return (
                   <div key={msg.id} className={cn("flex group", isMe ? "justify-end" : "justify-start")}>
                     <div className={cn("flex flex-col max-w-[80%] md:max-w-[70%] space-y-1", isMe ? "items-end" : "items-start")}>
@@ -388,7 +506,18 @@ export default function ChatPage() {
                           ? "bg-primary text-white rounded-t-3xl rounded-bl-3xl"
                           : "bg-white text-foreground rounded-t-3xl rounded-br-3xl border border-border/50"
                       )}>
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        <div className="flex items-end gap-2">
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
+                          {isMe && (
+                            <span className="shrink-0 mb-[1px]">
+                              {msg.is_read ? (
+                                <CheckCheck className="w-[14px] h-[14px] text-white/80" />
+                              ) : (
+                                <Check className="w-[14px] h-[14px] text-white/60" />
+                              )}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <span className="text-[10px] text-muted-foreground px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {msg.timestamp}
@@ -413,18 +542,17 @@ export default function ChatPage() {
             {/* Footer Input */}
             <footer className="p-4 md:p-6 bg-white border-t border-border/50 shrink-0">
               <div className="flex items-center gap-2 md:gap-4 bg-muted/30 p-2 rounded-2xl border border-border/20">
-                <Button variant="ghost" size="icon" className="rounded-full hidden sm:flex shrink-0">
-                  <Smile className="w-5 h-5 text-muted-foreground" />
-                </Button>
-                <Button variant="ghost" size="icon" className="rounded-full hidden sm:flex shrink-0">
-                  <Paperclip className="w-5 h-5 text-muted-foreground" />
-                </Button>
                 <Input
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage(inputValue)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault(); // Prevents the browser from misfiring duplicate events
+                      handleSendMessage(inputValue);
+                    }
+                  }}
                   placeholder="Écrivez votre message..."
-                  className="bg-transparent border-none focus-visible:ring-0 text-sm h-10 px-0 flex-1 min-w-0"
+                  className="bg-transparent border-none focus-visible:ring-0 text-sm h-10 px-4 flex-1 min-w-0"
                 />
                 <Button
                   onClick={() => handleSendMessage(inputValue)}

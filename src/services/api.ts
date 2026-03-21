@@ -60,6 +60,19 @@ export async function createOrGetConversation(participantId: string) {
   return res.json();
 }
 
+export async function createGroup(name: string, participants: string[]) {
+  const token = localStorage.getItem("token");
+  const res = await fetch(`${API_URL}/groups`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name, participants }),
+  });
+  return res.json();
+}
+
 export async function getMessages(conversationId: string) {
   const token = localStorage.getItem("token");
   const res = await fetch(`${API_URL}/messages/${conversationId}`, {

@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { MaterialIcons } from "@expo/vector-icons";
 import { Colors } from "../constants/Colors";
 import { loginUser, registerUser } from "../services/api";
 
@@ -15,8 +16,11 @@ export default function LoginScreen({ onLogin }: Props) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -25,6 +29,11 @@ export default function LoginScreen({ onLogin }: Props) {
       if (isLogin) {
         data = await loginUser(email, password);
       } else {
+        if (password !== confirmPassword) {
+          Alert.alert("Erreur", "Les mots de passe ne correspondent pas");
+          setLoading(false);
+          return;
+        }
         data = await registerUser(username, email, password);
       }
       await AsyncStorage.setItem("token", data.token);
@@ -46,7 +55,7 @@ export default function LoginScreen({ onLogin }: Props) {
         {/* Logo */}
         <View style={styles.logoContainer}>
           <View style={styles.logoIcon}>
-            <Text style={styles.logoEmoji}>💬</Text>
+            <MaterialIcons name="whatshot" size={32} color="#ffffff" />
           </View>
           <Text style={styles.logoText}>AquaChat</Text>
           <Text style={styles.subtitle}>Clean. Modern. Real-time.</Text>
@@ -100,15 +109,39 @@ export default function LoginScreen({ onLogin }: Props) {
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Mot de passe</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="••••••••"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              placeholderTextColor={Colors.gray400}
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="••••••••"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholderTextColor={Colors.gray400}
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+                <MaterialIcons name={showPassword ? "visibility" : "visibility-off"} size={22} color={Colors.gray400} />
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {!isLogin && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Confirmer le mot de passe</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPassword}
+                  placeholderTextColor={Colors.gray400}
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeIcon}>
+                  <MaterialIcons name={showConfirmPassword ? "visibility" : "visibility-off"} size={22} color={Colors.gray400} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.button, isLogin ? styles.buttonPrimary : styles.buttonAccent]}
@@ -159,6 +192,13 @@ const styles = StyleSheet.create({
     height: 48, borderRadius: 14, backgroundColor: Colors.gray100, paddingHorizontal: 16,
     fontSize: 15, color: Colors.text,
   },
+  passwordContainer: {
+    flexDirection: "row", alignItems: "center", backgroundColor: Colors.gray100, borderRadius: 14, height: 48,
+  },
+  passwordInput: {
+    flex: 1, paddingHorizontal: 16, fontSize: 15, color: Colors.text, height: "100%",
+  },
+  eyeIcon: { padding: 12 },
   button: { height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 8 },
   buttonPrimary: { backgroundColor: Colors.primary },
   buttonAccent: { backgroundColor: Colors.accent },

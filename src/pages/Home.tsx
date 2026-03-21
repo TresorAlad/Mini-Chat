@@ -4,13 +4,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MessageSquare, ShieldCheck, Zap, Globe } from "lucide-react";
+import { MessageSquare, ShieldCheck, Zap, Globe, Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { registerUser, loginUser } from "@/services/api";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -41,6 +44,13 @@ export default function Home() {
     const username = (form.elements.namedItem("username") as HTMLInputElement).value;
     const email = (form.elements.namedItem("reg-email") as HTMLInputElement).value;
     const password = (form.elements.namedItem("reg-password") as HTMLInputElement).value;
+    const confirmPassword = (form.elements.namedItem("reg-confirm-password") as HTMLInputElement).value;
+
+    if (password !== confirmPassword) {
+      setError("Les mots de passe ne correspondent pas");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const data = await registerUser(username, email, password);
@@ -124,7 +134,12 @@ export default function Home() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="password">Password</Label>
-                    <Input id="password" type="password" required className="rounded-xl" />
+                    <div className="relative">
+                      <Input id="password" type={showLoginPassword ? "text" : "password"} required className="rounded-xl pr-10" />
+                      <button type="button" tabIndex={-1} onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                   <Button type="submit" className="w-full h-11 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 transition-all" disabled={isLoading}>
                     {isLoading ? "Authenticating..." : "Sign In"}
@@ -144,7 +159,21 @@ export default function Home() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reg-password">Password</Label>
-                    <Input id="reg-password" type="password" required className="rounded-xl" />
+                    <div className="relative">
+                      <Input id="reg-password" type={showRegPassword ? "text" : "password"} required className="rounded-xl pr-10" />
+                      <button type="button" tabIndex={-1} onClick={() => setShowRegPassword(!showRegPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        {showRegPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reg-confirm-password">Confirm Password</Label>
+                    <div className="relative">
+                      <Input id="reg-confirm-password" type={showRegConfirmPassword ? "text" : "password"} required className="rounded-xl pr-10" />
+                      <button type="button" tabIndex={-1} onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                        {showRegConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                   <Button type="submit" className="w-full h-11 bg-accent text-accent-foreground font-semibold rounded-xl hover:bg-accent/90 transition-all" disabled={isLoading}>
                     {isLoading ? "Creating Account..." : "Create Account"}

@@ -43,6 +43,13 @@ export async function searchUsers(query: string, token: string) {
   return res.json();
 }
 
+export async function getConversations(token: string) {
+  const res = await fetch(`${API_URL}/conversations`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json();
+}
+
 export async function createOrGetConversation(participantId: string, token: string) {
   const res = await fetch(`${API_URL}/conversations`, {
     method: "POST",
@@ -51,6 +58,18 @@ export async function createOrGetConversation(participantId: string, token: stri
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ participant_id: participantId }),
+  });
+  return res.json();
+}
+
+export async function createGroup(name: string, participants: string[], token: string) {
+  const res = await fetch(`${API_URL}/groups`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name, participants }),
   });
   return res.json();
 }

@@ -54,6 +54,10 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.Register:
+			// Si l'utilisateur est déjà connecté (autre onglet ou reconnexion), débrancher l'ancien
+			if old, ok := h.Clients[client.UserId]; ok {
+				close(old.Send)
+			}
 			h.Clients[client.UserId] = client
 			log.Printf("Hub: Enregistrement utilisateur %s (Total: %d)\n", client.UserId, len(h.Clients))
 			updateUserStatus(client.UserId, "online")
@@ -69,8 +73,19 @@ func (h *Hub) Run() {
 			}
 			
 		case message := <-h.Broadcast:
+			// Identifier l'expéditeur pour éviter de lui renvoyer son propre message (cause des doublons)
+			var tmp struct {
+				SenderID string `json:"sender_id"`
+			}
+			json.Unmarshal(message, &tmp)
+
 			// Diffusion non-bloquante pour éviter qu'un client lent ne gèle tout le serveur
 			for _, client := range h.Clients {
+				// NE PAS renvoyer le message à l'expéditeur car son interface le gère déjà localement (optimistic UI)
+				if tmp.SenderID != "" && client.UserId == tmp.SenderID {
+					continue
+				}
+
 				select {
 				case client.Send <- message:
 					// Message envoyé avec succès au buffer du client

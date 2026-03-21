@@ -102,9 +102,16 @@ export default function UsersScreen({ navigation, route }: any) {
       <View style={styles.userInfo}>
         <View style={styles.userNameRow}>
           <Text style={styles.userName}>{item.username}</Text>
-          <Text style={[styles.statusText, item.status === "online" && styles.statusOnline]}>
-            {item.status === "online" ? "en ligne" : ""}
-          </Text>
+          <View style={{ alignItems: "flex-end", gap: 4 }}>
+            {item.unread_count > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>{item.unread_count}</Text>
+              </View>
+            )}
+            <Text style={[styles.statusText, item.status === "online" && styles.statusOnline]}>
+              {item.status === "online" ? "en ligne" : ""}
+            </Text>
+          </View>
         </View>
         <Text style={styles.userEmail} numberOfLines={1}>
           {item.is_group 
@@ -121,9 +128,12 @@ export default function UsersScreen({ navigation, route }: any) {
 
   const displayList = [
     ...conversations.filter(c => c.is_group).map(c => ({
-      _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true
+      _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true, unread_count: c.unread_count || 0
     })),
-    ...users
+    ...users.map(u => {
+      const convo = conversations.find(c => !c.is_group && c.participants.includes(u._id));
+      return { ...u, unread_count: convo?.unread_count || 0 };
+    })
   ];
 
   return (
@@ -230,4 +240,18 @@ const styles = StyleSheet.create({
   groupInput: { flex: 1, backgroundColor: Colors.gray100, borderRadius: 16, paddingHorizontal: 14, height: 44, fontSize: 15 },
   createGroupBtn: { backgroundColor: Colors.primary, paddingHorizontal: 16, height: 44, borderRadius: 16, justifyContent: "center" },
   createGroupText: { color: "#fff", fontWeight: "700" },
+  unreadBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  unreadBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+  },
 });

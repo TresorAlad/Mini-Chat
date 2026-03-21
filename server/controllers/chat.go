@@ -39,7 +39,30 @@ func GetConversations(c *fiber.Ctx) error {
 		conversations = []models.Conversation{}
 	}
 
-	return c.JSON(conversations)
+	// Calculer le nombre de messages non lus pour chaque conversation
+	type ConvWithUnread struct {
+		models.Conversation
+		UnreadCount int `json:"unread_count"`
+	}
+
+	var results []ConvWithUnread
+	msgCollection := config.DB.Collection("messages")
+
+	for _, conv := range conversations {
+		unreadFilter := bson.M{
+			"conversation_id": conv.ID.Hex(),
+			"sender_id":       bson.M{"$ne": userId},
+			"is_read":         false,
+		}
+		count, _ := msgCollection.CountDocuments(ctx, unreadFilter)
+		
+		results = append(results, ConvWithUnread{
+			Conversation: conv,
+			UnreadCount:  int(count),
+		})
+	}
+
+	return c.JSON(results)
 }
 
 // CreateOrGetConversation crée ou récupère une conversation entre 2 utilisateurs

@@ -25,6 +25,11 @@ export default function ChatScreen({ route, navigation }: any) {
   const currentConversationIdRef = useRef("");
   const flatListRef = useRef<FlatList>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const currentUserIdRef = useRef(currentUser._id);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUser._id;
+  }, [currentUser._id]);
 
   const getColor = (name: string) => {
     const avatarColors = ["#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#F43F5E", "#06B6D4"];
@@ -68,12 +73,18 @@ export default function ChatScreen({ route, navigation }: any) {
           }
 
           // Déduplication & Mise à jour de l'ID (TempID -> MongoID)
-          if (payload.sender_id === currentUser._id) {
+          if (payload.sender_id === currentUserIdRef.current) {
             if (payload.temp_id) {
               setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
             }
             return;
           }
+
+          // Filtrage par conversation
+          if (payload.conversation_id !== currentConversationIdRef.current) {
+            return;
+          }
+
           if (!payload.content) return;
 
           const newMsg: Message = {

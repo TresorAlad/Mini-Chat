@@ -52,6 +52,11 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const currentConversationIdRef = useRef("");
+  const currentUserIdRef = useRef(currentUserId);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -108,12 +113,23 @@ export default function ChatPage() {
           }
 
           // Déduplication & Mise à jour de l'ID (Passage de TempID -> MongoDB ID)
-          if (String(payload.sender_id) === currentUserId) {
+          if (String(payload.sender_id) === currentUserIdRef.current) {
             if (payload.temp_id) {
               setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
             }
             return;
           }
+
+          // Filtrage par conversation : on ignore les messages qui ne concernent pas le chat ouvert
+          if (String(payload.conversation_id) !== currentConversationIdRef.current) {
+            setConversations((prev) => prev.map(c => 
+              c._id === payload.conversation_id 
+                ? { ...c, last_message: payload.content, unread_count: (c.unread_count || 0) + 1 } 
+                : c
+            ));
+            return;
+          }
+
           if (!payload.content) return;
 
           const newMsg: Message = {
@@ -180,6 +196,9 @@ export default function ChatPage() {
       }
       setCurrentConversationId(convoId);
       currentConversationIdRef.current = convoId;
+      
+      // Réinitialiser le compteur de messages non lus localement
+      setConversations(prev => prev.map(c => c._id === convoId ? { ...c, unread_count: 0 } : c));
       
       const msgs = await getMessages(convoId);
       setMessages(
@@ -282,9 +301,12 @@ export default function ChatPage() {
 
   const displayList = [
     ...conversations.filter(c => c.is_group).map(c => ({
-      _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true
+      _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true, unread_count: c.unread_count || 0
     })),
-    ...users
+    ...users.map(u => {
+      const convo = conversations.find(c => !c.is_group && c.participants.includes(u._id));
+      return { ...u, unread_count: convo?.unread_count || 0 };
+    })
   ].filter(item => item.username.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
@@ -441,18 +463,25 @@ export default function ChatPage() {
                       )} />
                     </div>
                     <div className="flex-1 min-w-0 pr-6">
-                      <div className="flex justify-between items-center mb-0.5">
+                      <div className="flex justify-between items-start mb-0.5">
                         <span className="font-semibold text-sm truncate">{user.username}</span>
-                        <span className={cn(
-                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0",
-                          user.status === "online"
-                            ? "bg-green-50 text-green-600"
-                            : "text-muted-foreground"
-                        )}>
-                          {user.status === "online" ? "en ligne" : ""}
-                        </span>
+                        <div className="flex flex-col items-end gap-1.5 min-w-[32px]">
+                          {user.unread_count > 0 && (
+                            <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-primary text-white text-[10px] font-bold rounded-full shadow-sm animate-in zoom-in duration-300">
+                              {user.unread_count}
+                            </span>
+                          )}
+                          <span className={cn(
+                            "text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0",
+                            user.status === "online"
+                              ? "bg-green-50 text-green-600"
+                              : "text-muted-foreground"
+                          )}>
+                            {user.status === "online" ? "en ligne" : ""}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-xs text-muted-foreground truncate opacity-80">
                         {user.is_group ? (conversations.find((c: any) => c._id === user._id)?.last_message || "Groupe créé") : (conversations.find((c: any) => !c.is_group && c.participants.includes(user._id))?.last_message || "Démarrer une discussion")}
                       </p>
                     </div>

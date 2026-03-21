@@ -38,11 +38,36 @@ func (c *Client) ReadPump() {
 
 		// 1. Parser le message JSON provenant du frontend
 		var payload struct {
+			Type           string `json:"type"` // "message" ou "read"
 			ConversationID string `json:"conversation_id"`
 			Content        string `json:"content"`
 		}
 		if err := json.Unmarshal(message, &payload); err != nil {
 			log.Println("Erreur parsing message:", err)
+			continue
+		}
+
+		if payload.Type == "read" {
+			// Marquer les messages comme lus dans cette conversation
+			if config.DB != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				msgCollection := config.DB.Collection("messages")
+				filter := bson.M{
+					"conversation_id": payload.ConversationID,
+					"sender_id":       bson.M{"$ne": c.UserId},
+					"is_read":         false,
+				}
+				update := bson.M{"$set": bson.M{"is_read": true}}
+				msgCollection.UpdateMany(ctx, filter, update)
+				cancel()
+			}
+			// Retransmettre l'accusé de lecture à l'autre utilisateur
+			receipt, _ := json.Marshal(map[string]interface{}{
+				"type":            "read_receipt",
+				"conversation_id": payload.ConversationID,
+				"reader_id":       c.UserId,
+			})
+			c.Hub.Broadcast <- receipt
 			continue
 		}
 
@@ -68,6 +93,19 @@ func (c *Client) ReadPump() {
 					newMessage.ID = oid
 				}
 			}
+
+			// Mise à jour de la conversation avec le dernier message
+			if convoObjID, err := primitive.ObjectIDFromHex(payload.ConversationID); err == nil {
+				convoCollection := config.DB.Collection("conversations")
+				update := bson.M{
+					"$set": bson.M{
+						"last_message": payload.Content,
+						"updated_at":   time.Now(),
+					},
+				}
+				convoCollection.UpdateByID(ctx, convoObjID, update)
+			}
+
 			cancel()
 		}
 

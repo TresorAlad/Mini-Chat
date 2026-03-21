@@ -1,19 +1,22 @@
 package ws
 
-import "log"
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	"minichat-server/config"
+)
 
 // Hub maintient la liste des clients actifs et diffuse des messages.
 type Hub struct {
-	// Registered clients map[userId]*Client
-	Clients map[string]*Client
-
-	// Inbound messages from the clients.
-	Broadcast chan []byte
-
-	// Register requests from the clients.
-	Register chan *Client
-
-	// Unregister requests from clients.
+	Clients    map[string]*Client
+	Broadcast  chan []byte
+	Register   chan *Client
 	Unregister chan *Client
 }
 
@@ -26,24 +29,46 @@ func NewHub() *Hub {
 	}
 }
 
+func updateUserStatus(userId string, status string) {
+	if config.DB != nil {
+		coll := config.DB.Collection("users")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		oid, err := primitive.ObjectIDFromHex(userId)
+		if err == nil {
+			coll.UpdateByID(ctx, oid, bson.M{"$set": bson.M{"status": status}})
+		}
+	}
+}
+
+func (h *Hub) broadcastUserStatus(userId string, status string) {
+	msg, _ := json.Marshal(map[string]interface{}{
+		"type":    "user_status",
+		"user_id": userId,
+		"status":  status,
+	})
+	h.Broadcast <- msg
+}
+
 func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.Register:
 			h.Clients[client.UserId] = client
 			log.Printf("Nouvel utilisateur connecté: %s\n", client.UserId)
+			updateUserStatus(client.UserId, "online")
+			h.broadcastUserStatus(client.UserId, "online")
 			
 		case client := <-h.Unregister:
-			if _, ok := h.Clients[client.UserId]; ok {
+			if existingClient, ok := h.Clients[client.UserId]; ok && existingClient == client {
 				delete(h.Clients, client.UserId)
 				client.Conn.Close()
 				log.Printf("Utilisateur déconnecté: %s\n", client.UserId)
+				updateUserStatus(client.UserId, "offline")
+				h.broadcastUserStatus(client.UserId, "offline")
 			}
 			
 		case message := <-h.Broadcast:
-			// Pour un simple exemple global de broadcasting :
-			// Pour des conversations 1-1, il faudra décoder \`message\` en JSON
-			// et l'envoyer au \`recipient_id\`.
 			for _, client := range h.Clients {
 				client.Send <- message
 			}

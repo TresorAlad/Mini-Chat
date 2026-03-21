@@ -21,9 +21,10 @@ func SetupRoutes(app *fiber.App, hub *ws.Hub) {
 	protected.Get("users", controllers.GetUsers)
 	protected.Get("users/search", controllers.SearchUsers)
 
-	// Conversations
+	// Conversations et Groupes
 	protected.Get("conversations", controllers.GetConversations)
 	protected.Post("conversations", controllers.CreateOrGetConversation)
+	protected.Post("groups", controllers.CreateGroup)
 
 	// Messages
 	protected.Get("messages/:conversationId", controllers.GetMessages)

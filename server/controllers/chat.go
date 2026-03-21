@@ -87,6 +87,54 @@ func CreateOrGetConversation(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(conversation)
 }
 
+// CreateGroup crée une nouvelle conversation de groupe
+func CreateGroup(c *fiber.Ctx) error {
+	userId := c.Locals("userId").(string)
+
+	var input struct {
+		Name         string   `json:"name"`
+		Participants []string `json:"participants"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Données invalides"})
+	}
+
+	if input.Name == "" || len(input.Participants) < 1 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Nom et participants requis"})
+	}
+
+	participantsMap := make(map[string]bool)
+	participantsMap[userId] = true
+	for _, p := range input.Participants {
+		participantsMap[p] = true
+	}
+	
+	var finalParticipants []string
+	for p := range participantsMap {
+		finalParticipants = append(finalParticipants, p)
+	}
+
+	collection := config.DB.Collection("conversations")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conversation := models.Conversation{
+		ID:           primitive.NewObjectID(),
+		Participants: finalParticipants,
+		IsGroup:      true,
+		Name:         input.Name,
+		LastMessage:  "Groupe créé",
+		UpdatedAt:    time.Now(),
+	}
+
+	_, err := collection.InsertOne(ctx, conversation)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Impossible de créer le groupe"})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(conversation)
+}
+
 // GetMessages retourne l'historique des messages pour une conversation
 func GetMessages(c *fiber.Ctx) error {
 	conversationId := c.Params("conversationId")

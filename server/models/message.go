@@ -18,6 +18,8 @@ type Message struct {
 type Conversation struct {
 	ID           primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	Participants []string           `json:"participants" bson:"participants"`
-	LastMessage  string    `json:"last_message" bson:"last_message"`
-	UpdatedAt    time.Time `json:"updated_at" bson:"updated_at"`
+	IsGroup      bool               `json:"is_group" bson:"is_group"`
+	Name         string             `json:"name,omitempty" bson:"name,omitempty"`
+	LastMessage  string             `json:"last_message" bson:"last_message"`
+	UpdatedAt    time.Time          `json:"updated_at" bson:"updated_at"`
 }

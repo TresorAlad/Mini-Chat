@@ -7,15 +7,24 @@ const LOCAL_IP = "mini-chat-k173.onrender.com";
 export const API_URL = `https://${LOCAL_IP}/api`;
 export const WS_URL = `wss://${LOCAL_IP}/ws`;
 
+async function handleResponse(res: Response) {
+  const contentType = res.headers.get("content-type");
+  if (contentType && contentType.includes("application/json")) {
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+    return data;
+  }
+  if (!res.ok) throw new Error(`Erreur serveur ${res.status}`);
+  return null;
+}
+
 export async function registerUser(username: string, email: string, password: string) {
   const res = await fetch(`${API_URL}/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, email, password }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Erreur d'inscription");
-  return data;
+  return handleResponse(res);
 }
 
 export async function loginUser(email: string, password: string) {
@@ -24,30 +33,28 @@ export async function loginUser(email: string, password: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Erreur de connexion");
-  return data;
+  return handleResponse(res);
 }
 
 export async function getUsers(token: string) {
   const res = await fetch(`${API_URL}/users`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return res.json();
+  return handleResponse(res);
 }
 
 export async function searchUsers(query: string, token: string) {
   const res = await fetch(`${API_URL}/users/search?q=${encodeURIComponent(query)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return res.json();
+  return handleResponse(res);
 }
 
 export async function getConversations(token: string) {
   const res = await fetch(`${API_URL}/conversations`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return res.json();
+  return handleResponse(res);
 }
 
 export async function createOrGetConversation(participantId: string, token: string) {
@@ -59,7 +66,7 @@ export async function createOrGetConversation(participantId: string, token: stri
     },
     body: JSON.stringify({ participant_id: participantId }),
   });
-  return res.json();
+  return handleResponse(res);
 }
 
 export async function createGroup(name: string, participants: string[], token: string) {
@@ -71,14 +78,14 @@ export async function createGroup(name: string, participants: string[], token: s
     },
     body: JSON.stringify({ name, participants }),
   });
-  return res.json();
+  return handleResponse(res);
 }
 
 export async function getMessages(conversationId: string, token: string) {
   const res = await fetch(`${API_URL}/messages/${conversationId}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return res.json();
+  return handleResponse(res);
 }
 
 export function connectWebSocket(userId: string): WebSocket {

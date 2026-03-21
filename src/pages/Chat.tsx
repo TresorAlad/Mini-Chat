@@ -66,12 +66,18 @@ export default function ChatPage() {
   // Load users and conversations
   useEffect(() => {
     if (!currentUser) return;
-    Promise.all([getUsers(), getConversations()])
-      .then(([u, c]) => {
-        setUsers(u);
-        setConversations(c);
-      })
-      .catch(console.error);
+    const loadData = () => {
+      Promise.all([getUsers(), getConversations()])
+        .then(([u, c]) => {
+          setUsers(u);
+          setConversations(c);
+        })
+        .catch(console.error);
+    };
+
+    loadData();
+    const interval = setInterval(loadData, 5000); // Polling de sécurité toutes les 5s
+    return () => clearInterval(interval);
   }, []);
 
   // WebSocket connection & Auto-reconnect
@@ -112,35 +118,49 @@ export default function ChatPage() {
             return;
           }
 
+          // Log de debug pour comprendre la duplication
+          console.log("WS Recv:", {
+            payload_sender: payload.sender_id,
+            current_user: currentUserIdRef.current,
+            match: String(payload.sender_id).toLowerCase() === currentUserIdRef.current.toLowerCase()
+          });
+
           // Déduplication & Mise à jour de l'ID (Passage de TempID -> MongoDB ID)
-          if (String(payload.sender_id) === currentUserIdRef.current) {
+          if (String(payload.sender_id).toLowerCase() === currentUserIdRef.current.toLowerCase()) {
             if (payload.temp_id) {
               setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
             }
             return;
           }
 
-          // Filtrage par conversation : on ignore les messages qui ne concernent pas le chat ouvert
+          // Mise à jour de la liste des conversations (dernier message)
+          setConversations((prev) => prev.map(c => 
+            c._id === payload.conversation_id 
+              ? { ...c, last_message: payload.content, unread_count: (String(payload.conversation_id) !== currentConversationIdRef.current) ? (c.unread_count || 0) + 1 : 0 } 
+              : c
+          ));
+
+          // Filtrage par conversation : on ignore les messages qui ne concernent pas le chat ouvert pour l'affichage des bulles
           if (String(payload.conversation_id) !== currentConversationIdRef.current) {
-            setConversations((prev) => prev.map(c => 
-              c._id === payload.conversation_id 
-                ? { ...c, last_message: payload.content, unread_count: (c.unread_count || 0) + 1 } 
-                : c
-            ));
             return;
           }
 
           if (!payload.content) return;
 
           const newMsg: Message = {
-            id: payload._id || Date.now().toString(),
+            id: payload._id || payload.id || Date.now().toString(),
             sender_id: payload.sender_id,
             content: payload.content,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             is_read: false,
             conversation_id: payload.conversation_id,
           };
-          setMessages((prev) => [...prev, newMsg]);
+          
+          setMessages((prev) => {
+            const exists = prev.some(m => m.id === newMsg.id || (payload.temp_id && m.id === payload.temp_id));
+            if (exists) return prev;
+            return [...prev, newMsg];
+          });
           setConversations((prev) => prev.map(c => 
             c._id === payload.conversation_id ? { ...c, last_message: payload.content } : c
           ));
@@ -429,6 +449,8 @@ export default function ChatPage() {
               ) : (
                 displayList.map((user: any) => {
                   const isSelectedForGroup = selectedGroupUsers.includes(user._id);
+                  const isMe = String(user.sender_id || user._id).toLowerCase() === currentUserIdRef.current.toLowerCase();
+                  
                   return (
                   <div
                     key={user._id}
@@ -570,7 +592,7 @@ export default function ChatPage() {
                 </div>
               )}
               {messages.map((msg) => {
-                const isMe = String(msg.sender_id) === currentUserId;
+                const isMe = String(msg.sender_id).toLowerCase() === currentUserIdRef.current.toLowerCase();
                 return (
                   <div key={msg.id} className={cn("flex group", isMe ? "justify-end" : "justify-start")}>
                     <div className={cn("flex flex-col max-w-[80%] md:max-w-[70%] space-y-1", isMe ? "items-end" : "items-start")}>

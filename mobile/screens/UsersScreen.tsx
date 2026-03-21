@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator
+  StyleSheet, ActivityIndicator, RefreshControl
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Colors } from "../constants/Colors";
-import { getUsers, searchUsers, getConversations, createGroup } from "../services/api";
+import { getUsers, searchUsers, getConversations, createGroup, connectWebSocket } from "../services/api";
 
 type User = {
   _id: string;
@@ -20,12 +20,43 @@ export default function UsersScreen({ navigation, route }: any) {
   const [conversations, setConversations] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<string[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     loadUsersAndConvos();
+    const interval = setInterval(loadUsersAndConvos, 10000); // Polling de sécurité 10s
+    
+    // Pour mettre à jour les statuts et le dernier message en temps réel sur la liste
+    const ws = connectWebSocket(currentUserId);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "user_status") {
+          setUsers(prev => prev.map(u => u._id === payload.user_id ? { ...u, status: payload.status } : u));
+        }
+        if (payload.content || payload.type === "message") {
+          // Si on reçoit un message, on rafraîchit la conversation correspondante dans la liste
+          setConversations(prev => prev.map(c => 
+            c._id === payload.conversation_id 
+              ? { ...c, last_message: payload.content, unread_count: (c.unread_count || 0) + 1 } 
+              : c
+          ));
+        }
+      } catch (err) {
+        console.error("WS List Error:", err);
+      }
+    };
+
+    return () => {
+      ws.close();
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -41,7 +72,7 @@ export default function UsersScreen({ navigation, route }: any) {
   }, [search]);
 
   const loadUsersAndConvos = async () => {
-    setLoading(true);
+    if (!refreshing) setLoading(true);
     try {
       const [uRes, cRes] = await Promise.all([getUsers(token), getConversations(token)]);
       setUsers(uRes);
@@ -50,7 +81,13 @@ export default function UsersScreen({ navigation, route }: any) {
       console.error(err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadUsersAndConvos();
   };
 
   const handleSelectUser = (item: any) => {
@@ -193,6 +230,9 @@ export default function UsersScreen({ navigation, route }: any) {
           renderItem={renderUser}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+          }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <MaterialIcons name="group-off" size={48} color={Colors.textMuted} style={{ marginBottom: 12 }} />

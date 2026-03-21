@@ -88,13 +88,18 @@ export default function ChatScreen({ route, navigation }: any) {
           if (!payload.content) return;
 
           const newMsg: Message = {
-            id: payload._id || Date.now().toString(),
+            id: payload._id || payload.id || Date.now().toString(),
             sender_id: payload.sender_id,
             content: payload.content,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             conversation_id: payload.conversation_id,
           };
-          setMessages((prev) => [...prev, newMsg]);
+          
+          setMessages((prev) => {
+            const exists = prev.some(m => m.id === newMsg.id || (payload.temp_id && m.id === payload.temp_id));
+            if (exists) return prev;
+            return [...prev, newMsg];
+          });
 
           if (payload.conversation_id === currentConversationIdRef.current) {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -122,11 +127,17 @@ export default function ChatScreen({ route, navigation }: any) {
 
   const loadConversation = async () => {
     try {
-      const convo = await createOrGetConversation(user._id, token);
-      setConversationId(convo._id);
-      currentConversationIdRef.current = convo._id;
+      let convoId = user._id;
 
-      const msgs = await getMessages(convo._id, token);
+      if (!user.is_group) {
+        const convo = await createOrGetConversation(user._id, token);
+        convoId = convo._id;
+      }
+      
+      setConversationId(convoId);
+      currentConversationIdRef.current = convoId;
+
+      const msgs = await getMessages(convoId, token);
       setMessages(
         msgs.map((m: any) => ({
           id: m._id,
@@ -139,7 +150,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
       // Notifier le serveur qu'on a lu les messages existants de l'autre personne
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "read", conversation_id: convo._id }));
+        wsRef.current.send(JSON.stringify({ type: "read", conversation_id: convoId }));
       }
     } catch (err) {
       console.error("Load error:", err);

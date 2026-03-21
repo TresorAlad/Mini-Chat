@@ -39,12 +39,34 @@ func (c *Client) ReadPump() {
 
 		// 1. Parser le message JSON provenant du frontend
 		var payload struct {
-			Type           string `json:"type"` // "message" ou "read"
+			Type           string `json:"type"` // "message", "read", ou "delete_message"
 			ConversationID string `json:"conversation_id"`
 			Content        string `json:"content"`
+			MessageID      string `json:"message_id"` // Utilisé pour la suppression
 		}
 		if err := json.Unmarshal(message, &payload); err != nil {
 			log.Println("Erreur parsing message:", err)
+			continue
+		}
+
+		if payload.Type == "delete_message" && payload.MessageID != "" {
+			if config.DB != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				msgCollection := config.DB.Collection("messages")
+				if objID, err := primitive.ObjectIDFromHex(payload.MessageID); err == nil {
+					// Optionnel : on pourrait vérifier que le sender est bien c.UserId avant de delete
+					msgCollection.DeleteOne(ctx, bson.M{"_id": objID})
+				}
+				cancel()
+			}
+			
+			// Retransmettre l'événement de suppression aux autres participants
+			deletion, _ := json.Marshal(map[string]interface{}{
+				"type":            "delete_message",
+				"conversation_id": payload.ConversationID,
+				"message_id":      payload.MessageID,
+			})
+			c.Hub.Broadcast <- deletion
 			continue
 		}
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, KeyboardAvoidingView, Platform
+  StyleSheet, KeyboardAvoidingView, Platform, Alert
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Colors } from "../constants/Colors";
@@ -33,58 +33,74 @@ export default function ChatScreen({ route, navigation }: any) {
 
   useEffect(() => {
     loadConversation();
-    
-    const ws = connectWebSocket(currentUser._id);
-    wsRef.current = ws;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: NodeJS.Timeout;
 
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        
-        // Statut en ligne
-        if (payload.type === "user_status") {
-          if (payload.user_id === user._id) {
-            setUserStatus(payload.status);
+    const connect = () => {
+      ws = connectWebSocket(currentUser._id);
+      wsRef.current = ws;
+
+      ws.onopen = () => console.log("WS connecté");
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          
+          if (payload.type === "user_status") {
+            if (payload.user_id === user._id) {
+              setUserStatus(payload.status);
+            }
+            return;
           }
-          return;
-        }
 
-        // Accusé de lecture
-        if (payload.type === "read_receipt") {
-          setMessages((prev) => prev.map(m => 
-            m.conversation_id === payload.conversation_id && m.sender_id === currentUser._id 
-              ? { ...m, is_read: true } 
-              : m
-          ));
-          return;
-        }
-
-        if (payload.sender_id === currentUser._id) return;
-        
-        // PROTECTION: Si le vieux serveur renvoie un événement "read" comme un message vide, on l'ignore
-        if (!payload.content) return;
-
-        const newMsg: Message = {
-          id: payload._id || Date.now().toString(),
-          sender_id: payload.sender_id,
-          content: payload.content,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          conversation_id: payload.conversation_id,
-        };
-        setMessages((prev) => [...prev, newMsg]);
-
-        // Si la discussion est ouverte devant moi, on marque lu
-        if (payload.conversation_id === currentConversationIdRef.current) {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: "read", conversation_id: payload.conversation_id }));
+          if (payload.type === "read_receipt") {
+            setMessages((prev) => prev.map(m => 
+              m.conversation_id === payload.conversation_id && m.sender_id === currentUser._id 
+                ? { ...m, is_read: true } 
+                : m
+            ));
+            return;
           }
+
+          if (payload.type === "delete_message") {
+            setMessages((prev) => prev.filter(m => m.id !== payload.message_id));
+            return;
+          }
+
+          if (payload.sender_id === currentUser._id) return;
+          if (!payload.content) return;
+
+          const newMsg: Message = {
+            id: payload._id || Date.now().toString(),
+            sender_id: payload.sender_id,
+            content: payload.content,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            conversation_id: payload.conversation_id,
+          };
+          setMessages((prev) => [...prev, newMsg]);
+
+          if (payload.conversation_id === currentConversationIdRef.current) {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: "read", conversation_id: payload.conversation_id }));
+            }
+          }
+        } catch (err) {
+          console.error("WS error:", err);
         }
-      } catch (err) {
-        console.error("WS error:", err);
-      }
+      };
+
+      ws.onclose = () => {
+        console.log("WS déconnecté, reconnexion...");
+        reconnectTimer = setTimeout(connect, 3000);
+      };
     };
 
-    return () => { ws.close(); };
+    connect();
+
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
   }, []);
 
   const loadConversation = async () => {
@@ -134,11 +150,40 @@ export default function ChatScreen({ route, navigation }: any) {
     }
   };
 
+  const handleLongPress = (item: Message) => {
+    if (item.sender_id !== currentUser._id) return;
+    Alert.alert(
+      "Supprimer",
+      "Voulez-vous supprimer ce message pour tout le monde ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { 
+          text: "Supprimer", 
+          style: "destructive",
+          onPress: () => {
+            setMessages((prev) => prev.filter(m => m.id !== item.id));
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ 
+                type: "delete_message", 
+                message_id: item.id, 
+                conversation_id: item.conversation_id 
+              }));
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === currentUser._id;
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowRight : styles.msgRowLeft]}>
-        <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
+        <TouchableOpacity 
+          activeOpacity={isMe ? 0.7 : 1}
+          onLongPress={() => handleLongPress(item)}
+          style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}
+        >
           <View style={styles.msgContentRow}>
             <Text style={[styles.msgText, isMe && styles.msgTextMe]}>{item.content}</Text>
             {isMe && (
@@ -150,7 +195,7 @@ export default function ChatScreen({ route, navigation }: any) {
               />
             )}
           </View>
-        </View>
+        </TouchableOpacity>
         <Text style={styles.msgTime}>{item.timestamp}</Text>
       </View>
     );

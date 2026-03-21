@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Search, Send, MoreVertical, LogOut, Check, CheckCheck,
-  MessageSquarePlus, Users, Menu, X, UserPlus, ArrowLeft
+  MessageSquarePlus, Users, Menu, X, UserPlus, ArrowLeft, Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -69,64 +69,84 @@ export default function ChatPage() {
       .catch(console.error);
   }, []);
 
-  // WebSocket connection
+  // WebSocket connection & Auto-reconnect
   useEffect(() => {
     if (!currentUser) return;
-    const ws = connectWebSocket(currentUserId);
-    wsRef.current = ws;
-    ws.onopen = () => console.log("Connecté au WebSocket ✅");
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        
-        // Statut en ligne / hors ligne
-        if (payload.type === "user_status") {
-          setUsers(prev => prev.map(u => u._id === payload.user_id ? { ...u, status: payload.status } : u));
-          setSelectedUser(prev => (prev && prev._id === payload.user_id) ? { ...prev, status: payload.status } : prev);
-          return;
-        }
+    let ws: WebSocket;
+    let reconnectTimer: NodeJS.Timeout;
 
-        // Accusé de lecture
-        if (payload.type === "read_receipt") {
-          setMessages((prev) => prev.map(m => 
-            m.conversation_id === payload.conversation_id && String(m.sender_id) === currentUserId 
-              ? { ...m, is_read: true } 
-              : m
-          ));
-          return;
-        }
+    const connect = () => {
+      ws = connectWebSocket(currentUserId);
+      wsRef.current = ws;
 
-        // On compare toujours deux string
-        if (String(payload.sender_id) === currentUserId) return;
-        
-        // PROTECTION: Si le vieux serveur renvoie un événement "read" comme un message vide, on l'ignore (bris de la boucle infinie)
-        if (!payload.content) return;
+      ws.onopen = () => {
+        console.log("WebSocket connecté");
+      };
 
-        const newMsg: Message = {
-          id: payload._id || Date.now().toString(),
-          sender_id: payload.sender_id,
-          content: payload.content,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          is_read: false,
-          conversation_id: payload.conversation_id,
-        };
-        setMessages((prev) => [...prev, newMsg]);
-        setConversations((prev) => prev.map(c => 
-          c._id === payload.conversation_id ? { ...c, last_message: payload.content } : c
-        ));
-
-        // Si on est actuellement dans la conversation où le message arrive, on notifie immédiatement qu'on l'a lu!
-        if (payload.conversation_id === currentConversationIdRef.current) {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: "read", conversation_id: payload.conversation_id }));
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          
+          if (payload.type === "user_status") {
+            setUsers(prev => prev.map(u => u._id === payload.user_id ? { ...u, status: payload.status } : u));
+            setSelectedUser(prev => (prev && prev._id === payload.user_id) ? { ...prev, status: payload.status } : prev);
+            return;
           }
+
+          if (payload.type === "read_receipt") {
+            setMessages((prev) => prev.map(m => 
+              m.conversation_id === payload.conversation_id && String(m.sender_id) === currentUserId 
+                ? { ...m, is_read: true } 
+                : m
+            ));
+            return;
+          }
+
+          if (payload.type === "delete_message") {
+            setMessages((prev) => prev.filter(m => m.id !== payload.message_id));
+            // Si le dernier message est supprimé, on pourrait aussi mettre à jour les conversations, 
+            // mais c'est accessoire pour le moment.
+            return;
+          }
+
+          if (String(payload.sender_id) === currentUserId) return;
+          if (!payload.content) return;
+
+          const newMsg: Message = {
+            id: payload._id || Date.now().toString(),
+            sender_id: payload.sender_id,
+            content: payload.content,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            is_read: false,
+            conversation_id: payload.conversation_id,
+          };
+          setMessages((prev) => [...prev, newMsg]);
+          setConversations((prev) => prev.map(c => 
+            c._id === payload.conversation_id ? { ...c, last_message: payload.content } : c
+          ));
+
+          if (payload.conversation_id === currentConversationIdRef.current) {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: "read", conversation_id: payload.conversation_id }));
+            }
+          }
+        } catch (err) {
+          console.error("Erreur WS:", err);
         }
-      } catch (err) {
-        console.error("Erreur WS:", err);
-      }
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket déconnecté, reconnexion...");
+        reconnectTimer = setTimeout(connect, 3000);
+      };
     };
-    ws.onclose = () => console.log("Déconnecté du WebSocket");
-    return () => { ws.close(); };
+
+    connect();
+
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
   }, []);
 
   // Scroll to bottom
@@ -215,6 +235,22 @@ export default function ChatPage() {
     
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ conversation_id: currentConversationId, content: messageContent }));
+    }
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    // Si la confirmation est souhaitée, on peut rajouter un window.confirm
+    if (!window.confirm("Supprimer ce message pour tout le monde ?")) return;
+    
+    // Suppression pessimiste / optimiste
+    setMessages((prev) => prev.filter(m => m.id !== messageId));
+    
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ 
+        type: "delete_message", 
+        message_id: messageId, 
+        conversation_id: currentConversationIdRef.current 
+      }));
     }
   };
 
@@ -501,7 +537,7 @@ export default function ChatPage() {
                   <div key={msg.id} className={cn("flex group", isMe ? "justify-end" : "justify-start")}>
                     <div className={cn("flex flex-col max-w-[80%] md:max-w-[70%] space-y-1", isMe ? "items-end" : "items-start")}>
                       <div className={cn(
-                        "px-5 py-3 shadow-sm transition-all duration-200",
+                        "px-5 py-3 shadow-sm transition-all duration-200 relative group/bubble",
                         isMe
                           ? "bg-primary text-white rounded-t-3xl rounded-bl-3xl"
                           : "bg-white text-foreground rounded-t-3xl rounded-br-3xl border border-border/50"
@@ -518,6 +554,16 @@ export default function ChatPage() {
                             </span>
                           )}
                         </div>
+                        {/* Bouton de suppression Web */}
+                        {isMe && (
+                          <button 
+                            onClick={() => handleDeleteMessage(msg.id)}
+                            title="Supprimer pour tous"
+                            className="absolute top-1/2 -translate-y-1/2 -left-8 p-1.5 opacity-0 group-hover/bubble:opacity-100 text-destructive/70 hover:text-destructive hover:bg-destructive/10 rounded-full transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                       <span className="text-[10px] text-muted-foreground px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {msg.timestamp}

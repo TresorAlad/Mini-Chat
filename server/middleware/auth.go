@@ -22,7 +22,7 @@ func JWTAuth() fiber.Handler {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Token invalide"})
 		}
 
-		c.Locals("userId", (*claims)["user_id"])
+		c.Locals("userId", (*claims)["userId"])
 		c.Locals("username", (*claims)["username"])
 
 		return c.Next()

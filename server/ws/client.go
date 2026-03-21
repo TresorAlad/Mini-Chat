@@ -194,7 +194,7 @@ func ServeWebSocket(hub *Hub) fiber.Handler {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Token invalide"})
 			}
 
-			userId := (*claims)["user_id"].(string)
+			userId := (*claims)["userId"].(string)
 
 			return websocket.New(func(conn *websocket.Conn) {
 				client := &Client{

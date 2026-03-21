@@ -69,7 +69,7 @@ func (c *Client) ReadPump() {
 				"conversation_id": payload.ConversationID,
 				"message_id":      payload.MessageID,
 			})
-			c.Hub.Broadcast <- deletion
+			c.Hub.Broadcast <- BroadcastMessage{Data: deletion, Sender: c}
 			continue
 		}
 
@@ -93,7 +93,7 @@ func (c *Client) ReadPump() {
 				"conversation_id": payload.ConversationID,
 				"reader_id":       c.UserId,
 			})
-			c.Hub.Broadcast <- receipt
+			c.Hub.Broadcast <- BroadcastMessage{Data: receipt, Sender: c}
 			continue
 		}
 
@@ -147,7 +147,7 @@ func (c *Client) ReadPump() {
 			"temp_id":         payload.TempID,
 		}
 		savedMessageJSON, _ := json.Marshal(msgMap)
-		c.Hub.Broadcast <- savedMessageJSON
+		c.Hub.Broadcast <- BroadcastMessage{Data: savedMessageJSON, Sender: c}
 	}
 }
 

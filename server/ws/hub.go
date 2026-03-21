@@ -12,20 +12,27 @@ import (
 	"minichat-server/config"
 )
 
+type BroadcastMessage struct {
+	Data   []byte
+	Sender *Client
+}
+
 // Hub maintient la liste des clients actifs et diffuse des messages.
 type Hub struct {
-	Clients    map[string]*Client
-	Broadcast  chan []byte
+	Clients    map[*Client]bool
+	Broadcast  chan BroadcastMessage
 	Register   chan *Client
 	Unregister chan *Client
+	UserConns  map[string]int // Nombre de connexions par utilisateur
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		Broadcast:  make(chan []byte),
+		Broadcast:  make(chan BroadcastMessage),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
-		Clients:    make(map[string]*Client),
+		Clients:    make(map[*Client]bool),
+		UserConns:  make(map[string]int),
 	}
 }
 
@@ -47,54 +54,53 @@ func (h *Hub) broadcastUserStatus(userId string, status string) {
 		"user_id": userId,
 		"status":  status,
 	})
-	h.Broadcast <- msg
+	h.Broadcast <- BroadcastMessage{Data: msg, Sender: nil}
 }
 
 func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.Register:
-			// Si l'utilisateur est déjà connecté (autre onglet ou reconnexion), débrancher l'ancien
-			if old, ok := h.Clients[client.UserId]; ok {
-				close(old.Send)
+			h.Clients[client] = true
+			h.UserConns[client.UserId]++
+			log.Printf("Hub: Enregistrement client pour %s (Total user connections: %d)\n", client.UserId, h.UserConns[client.UserId])
+			
+			if h.UserConns[client.UserId] == 1 {
+				updateUserStatus(client.UserId, "online")
+				go h.broadcastUserStatus(client.UserId, "online")
 			}
-			h.Clients[client.UserId] = client
-			log.Printf("Hub: Enregistrement utilisateur %s (Total: %d)\n", client.UserId, len(h.Clients))
-			updateUserStatus(client.UserId, "online")
-			go h.broadcastUserStatus(client.UserId, "online")
 			
 		case client := <-h.Unregister:
-			if existingClient, ok := h.Clients[client.UserId]; ok && existingClient == client {
-				delete(h.Clients, client.UserId)
+			if _, ok := h.Clients[client]; ok {
+				delete(h.Clients, client)
 				close(client.Send)
-				log.Printf("Hub: Désenregistrement utilisateur %s (Restant: %d)\n", client.UserId, len(h.Clients))
-				updateUserStatus(client.UserId, "offline")
-				go h.broadcastUserStatus(client.UserId, "offline")
+				h.UserConns[client.UserId]--
+				log.Printf("Hub: Désenregistrement client pour %s (Restant connections: %d)\n", client.UserId, h.UserConns[client.UserId])
+				
+				if h.UserConns[client.UserId] <= 0 {
+					delete(h.UserConns, client.UserId)
+					updateUserStatus(client.UserId, "offline")
+					go h.broadcastUserStatus(client.UserId, "offline")
+				}
 			}
 			
 		case message := <-h.Broadcast:
-			// Identifier l'expéditeur pour éviter de lui renvoyer son propre message (cause des doublons)
-			var tmp struct {
-				SenderID string `json:"sender_id"`
-			}
-			json.Unmarshal(message, &tmp)
-
-			// Diffusion non-bloquante pour éviter qu'un client lent ne gèle tout le serveur
-			for _, client := range h.Clients {
-				// NE PAS renvoyer le message à l'expéditeur car son interface le gère déjà localement (optimistic UI)
-				if tmp.SenderID != "" && client.UserId == tmp.SenderID {
+			// Diffusion vers tous les clients connectés
+			for client := range h.Clients {
+				// Ne pas renvoyer le message à la connexion précise qui l'a émis
+				if message.Sender != nil && client == message.Sender {
 					continue
 				}
-
 				select {
-				case client.Send <- message:
-					// Message envoyé avec succès au buffer du client
+				case client.Send <- message.Data:
 				default:
-					// Buffer du client plein (client trop lent), on le débranche proprement
-					log.Printf("Hub: Client %s trop lent, déconnexion forcée\n", client.UserId)
-					delete(h.Clients, client.UserId)
 					close(client.Send)
-					client.SafeClose()
+					delete(h.Clients, client)
+					h.UserConns[client.UserId]--
+					if h.UserConns[client.UserId] <= 0 {
+						delete(h.UserConns, client.UserId)
+						go h.broadcastUserStatus(client.UserId, "offline")
+					}
 				}
 			}
 		}

@@ -17,27 +17,36 @@ func JWTAuth() fiber.Handler {
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
-		secret := os.Getenv("JWT_SECRET")
-		if secret == "" {
-			secret = "minichat-secret-key"
-		}
-
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			return []byte(secret), nil
-		})
-
-		if err != nil || !token.Valid {
+		claims, err := VerifyToken(tokenStr)
+		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Token invalide"})
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Claims invalides"})
-		}
-
-		c.Locals("userId", claims["userId"])
-		c.Locals("username", claims["username"])
+		c.Locals("userId", (*claims)["user_id"])
+		c.Locals("username", (*claims)["username"])
 
 		return c.Next()
 	}
+}
+
+func VerifyToken(tokenStr string) (*jwt.MapClaims, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "minichat-secret-key"
+	}
+
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+
+	if err != nil || !token.Valid {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, "Token invalide")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, "Claims invalides")
+	}
+
+	return &claims, nil
 }

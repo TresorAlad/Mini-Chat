@@ -30,6 +30,6 @@ func SetupRoutes(app *fiber.App, hub *ws.Hub) {
 	// Messages
 	protected.Get("/messages/:conversationId", controllers.GetMessages)
 
-	// WebSocket (pas de JWT pour simplifier la mise en place)
-	app.Get("/ws/:userId", ws.ServeWebSocket(hub))
+	// WebSocket (authentification par token dans la requête)
+	app.Get("/ws", ws.ServeWebSocket(hub))
 }

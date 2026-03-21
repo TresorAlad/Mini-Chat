@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	
 	"minichat-server/config"
+	"minichat-server/middleware"
 	"minichat-server/models"
 )
 
@@ -183,7 +184,17 @@ func ServeWebSocket(hub *Hub) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Vérifier si protocol WebSocket ("ws://")
 		if websocket.IsWebSocketUpgrade(c) {
-			userId := c.Params("userId")
+			tokenStr := c.Query("token")
+			if tokenStr == "" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Token requis"})
+			}
+
+			claims, err := middleware.VerifyToken(tokenStr)
+			if err != nil {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Token invalide"})
+			}
+
+			userId := (*claims)["user_id"].(string)
 
 			return websocket.New(func(conn *websocket.Conn) {
 				client := &Client{
@@ -191,6 +202,7 @@ func ServeWebSocket(hub *Hub) fiber.Handler {
 					Conn:   conn,
 					UserId: userId,
 					Send:   make(chan []byte, 256), // Buffer de transmission
+					mu:     sync.Mutex{},
 				}
 
 				// L'enregistrer dans nos connexions actives

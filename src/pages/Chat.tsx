@@ -49,6 +49,7 @@ export default function ChatPage() {
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<string[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const currentConversationIdRef = useRef("");
@@ -87,7 +88,8 @@ export default function ChatPage() {
     let reconnectTimer: NodeJS.Timeout;
 
     const connect = () => {
-      ws = connectWebSocket(currentUserId);
+      const token = localStorage.getItem("token") || "";
+      ws = connectWebSocket(token);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -99,14 +101,17 @@ export default function ChatPage() {
           const payload = JSON.parse(event.data);
           
           if (payload.type === "user_status") {
-            setUsers(prev => prev.map(u => u._id === payload.user_id ? { ...u, status: payload.status } : u));
-            setSelectedUser(prev => (prev && prev._id === payload.user_id) ? { ...prev, status: payload.status } : prev);
+            const userId = String(payload.user_id || "").trim().toLowerCase();
+            setUsers(prev => prev.map(u => String(u._id || "").trim().toLowerCase() === userId ? { ...u, status: payload.status } : u));
+            setSelectedUser(prev => (prev && String(prev._id || "").trim().toLowerCase() === userId) ? { ...prev, status: payload.status } : prev);
             return;
           }
 
           if (payload.type === "read_receipt") {
+            const convoId = String(payload.conversation_id || "").trim().toLowerCase();
             setMessages((prev) => prev.map(m => 
-              m.conversation_id === payload.conversation_id && String(m.sender_id) === currentUserId 
+              String(m.conversation_id || "").trim().toLowerCase() === convoId && 
+              String(m.sender_id || "").trim().toLowerCase() === String(currentUser?._id || currentUser?.id || "").trim().toLowerCase()
                 ? { ...m, is_read: true } 
                 : m
             ));
@@ -126,7 +131,10 @@ export default function ChatPage() {
           });
 
           // Déduplication & Mise à jour de l'ID (Passage de TempID -> MongoDB ID)
-          if (String(payload.sender_id).toLowerCase() === currentUserIdRef.current.toLowerCase()) {
+          const myId = String(currentUser?._id || currentUser?.id || "").trim().toLowerCase();
+          const senderId = String(payload.sender_id || "").trim().toLowerCase();
+          
+          if (senderId === myId && myId !== "") {
             if (payload.temp_id) {
               setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
             }
@@ -208,6 +216,7 @@ export default function ChatPage() {
     setSelectedUser(user);
     setShowUserSearch(false);
     setSidebarOpen(false);
+    setIsLoadingMessages(true);
     try {
       let convoId = user._id; // Si c'est un groupe, user._id est déjà l'ID de conversation
       if (!user.is_group) {
@@ -223,14 +232,15 @@ export default function ChatPage() {
       const msgs = await getMessages(convoId);
       setMessages(
         msgs.map((m: any) => ({
-          id: m._id,
-          sender_id: m.sender_id,
+          id: m._id || m.id,
+          sender_id: String(m.sender_id || m.senderID || m.SenderID || ""),
           content: m.content,
           timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           is_read: m.is_read,
           conversation_id: m.conversation_id,
         }))
       );
+      setIsLoadingMessages(false);
 
       // Notifier le serveur qu'on a lu les messages de ce chat
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -324,7 +334,8 @@ export default function ChatPage() {
       _id: c._id, username: c.name, email: `${c.participants.length} membres`, status: "online", is_group: true, unread_count: c.unread_count || 0
     })),
     ...(users || []).map(u => {
-      const convo = (conversations || []).find(c => !c.is_group && (c.participants || []).includes(u._id));
+      const uId = String(u?._id || "").trim().toLowerCase();
+      const convo = (conversations || []).find(c => !c.is_group && (c.participants || []).some((p: string) => String(p).trim().toLowerCase() === uId));
       return { ...u, unread_count: convo?.unread_count || 0 };
     })
   ].filter(item => (item.username || "").toLowerCase().includes(searchQuery.toLowerCase()));
@@ -584,7 +595,11 @@ export default function ChatPage() {
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-[#F8FAFC]/50">
-              {messages.length === 0 && (
+              {isLoadingMessages ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-center opacity-50">
                   <MessageSquarePlus className="w-14 h-14 text-primary/30 mb-4" />
                   <p className="text-sm text-muted-foreground">Démarrez la conversation !</p>
@@ -592,7 +607,9 @@ export default function ChatPage() {
                 </div>
               )}
               {messages.map((msg) => {
-                const isMe = String(msg.sender_id).toLowerCase() === currentUserIdRef.current.toLowerCase();
+                const myId = String(currentUser?._id || currentUser?.id || "").trim().toLowerCase();
+                const senderId = String(msg.sender_id || "").trim().toLowerCase();
+                const isMe = senderId === myId && myId !== "";
                 return (
                   <div key={msg.id} className={cn("flex group", isMe ? "justify-end" : "justify-start")}>
                     <div className={cn("flex flex-col max-w-[80%] md:max-w-[70%] space-y-1", isMe ? "items-end" : "items-start")}>

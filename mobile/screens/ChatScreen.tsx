@@ -21,6 +21,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userStatus, setUserStatus] = useState(user?.status || "offline");
   const [inputValue, setInputValue] = useState("");
+  const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState("");
   const currentConversationIdRef = useRef("");
   const flatListRef = useRef<FlatList>(null);
@@ -44,8 +45,8 @@ export default function ChatScreen({ route, navigation }: any) {
     let reconnectTimer: NodeJS.Timeout;
 
   const connect = () => {
-        if (!currentUser?._id) return;
-        ws = connectWebSocket(currentUser._id);
+        if (!token) return;
+        ws = connectWebSocket(token);
       wsRef.current = ws;
 
       ws.onopen = () => console.log("WS connecté");
@@ -76,7 +77,10 @@ export default function ChatScreen({ route, navigation }: any) {
           }
 
           // Déduplication & Mise à jour de l'ID (TempID -> MongoID)
-          if (payload.sender_id === currentUserIdRef.current) {
+          const myId = String(currentUser?._id || currentUser?.id || "").trim().toLowerCase();
+          const senderId = String(payload.sender_id || "").trim().toLowerCase();
+          
+          if (senderId === myId && myId !== "") {
             if (payload.temp_id) {
               setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
             }
@@ -137,6 +141,7 @@ export default function ChatScreen({ route, navigation }: any) {
       let convoId = user._id;
 
       if (!user.is_group) {
+        setLoading(true);
         const convo = await createOrGetConversation(user._id, token);
         convoId = convo._id;
       }
@@ -147,13 +152,14 @@ export default function ChatScreen({ route, navigation }: any) {
       const msgs = await getMessages(convoId, token);
       setMessages(
         msgs.map((m: any) => ({
-          id: m._id,
-          sender_id: m.sender_id,
+          id: m._id || m.id,
+          sender_id: String(m.sender_id || m.senderID || m.SenderID || ""),
           content: m.content,
           timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           conversation_id: m.conversation_id,
         }))
       );
+      setLoading(false);
 
       // Notifier le serveur qu'on a lu les messages existants de l'autre personne
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -188,7 +194,9 @@ export default function ChatScreen({ route, navigation }: any) {
   };
 
   const handleLongPress = (item: Message) => {
-    if (item.sender_id !== currentUser._id) return;
+    const myId = String(currentUser?._id || currentUser?.id || "").trim().toLowerCase();
+    const senderId = String(item.sender_id || "").trim().toLowerCase();
+    if (senderId !== myId) return;
     Alert.alert(
       "Supprimer",
       "Voulez-vous supprimer ce message pour tout le monde ?",
@@ -213,7 +221,9 @@ export default function ChatScreen({ route, navigation }: any) {
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
-    const isMe = item.sender_id === currentUser._id;
+    const myId = String(currentUser?._id || currentUser?.id || "").trim().toLowerCase();
+    const senderId = String(item.sender_id || "").trim().toLowerCase();
+    const isMe = senderId === myId && myId !== "";
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowRight : styles.msgRowLeft]}>
         <TouchableOpacity 
@@ -268,20 +278,26 @@ export default function ChatScreen({ route, navigation }: any) {
         </View>
       </View>
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messagesList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        ListEmptyComponent={
-          <View style={styles.emptyChat}>
-            <MaterialIcons name="forum" size={48} color={Colors.primary + "60"} style={{ marginBottom: 12 }} />
-            <Text style={styles.emptyChatText}>Démarrez la conversation !</Text>
-          </View>
-        }
-      />
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.messagesList}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          ListEmptyComponent={
+            <View style={styles.emptyChat}>
+              <MaterialIcons name="forum" size={48} color={Colors.primary + "60"} style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyChatText}>Démarrez la conversation !</Text>
+            </View>
+          }
+        />
+      )}
 
       <View style={styles.inputBar}>
         <TextInput

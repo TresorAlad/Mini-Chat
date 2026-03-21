@@ -88,6 +88,6 @@ export async function getMessages(conversationId: string) {
   return handleResponse(res);
 }
 
-export function connectWebSocket(userId: string): WebSocket {
-  return new WebSocket(`${WS_URL}/${userId}`);
+export function connectWebSocket(token: string): WebSocket {
+  return new WebSocket(`${WS_URL}?token=${token}`);
 }

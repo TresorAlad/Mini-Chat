@@ -2,7 +2,7 @@
 
 AquaChat est une application de messagerie multiplateforme haute performance composée d'un backend en Go/Fiber, d'un frontend Web élégant en React et d'une application mobile native Expo. Conçue pour la rapidité, la sécurité et l'évolutivité.
 
-![AquaChat Banner](https://images.unsplash.com/photo-1614850523296-d8c1af93d400?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80)
+![AquaChat Dashboard](./screenshots/dashboard.png)
 
 ## 🚀 Fonctionnalités Clés
 

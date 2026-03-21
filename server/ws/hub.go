@@ -57,7 +57,7 @@ func (h *Hub) Run() {
 			h.Clients[client.UserId] = client
 			log.Printf("Nouvel utilisateur connecté: %s\n", client.UserId)
 			updateUserStatus(client.UserId, "online")
-			h.broadcastUserStatus(client.UserId, "online")
+			go h.broadcastUserStatus(client.UserId, "online")
 			
 		case client := <-h.Unregister:
 			if existingClient, ok := h.Clients[client.UserId]; ok && existingClient == client {
@@ -65,7 +65,7 @@ func (h *Hub) Run() {
 				client.Conn.Close()
 				log.Printf("Utilisateur déconnecté: %s\n", client.UserId)
 				updateUserStatus(client.UserId, "offline")
-				h.broadcastUserStatus(client.UserId, "offline")
+				go h.broadcastUserStatus(client.UserId, "offline")
 			}
 			
 		case message := <-h.Broadcast:

@@ -1,5 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL;
-const WS_URL = import.meta.env.VITE_WS_URL;
+const API_URL = import.meta.env.VITE_API_URL || "https://mini-chat-k173.onrender.com/api";
+const WS_URL = import.meta.env.VITE_WS_URL || "wss://mini-chat-k173.onrender.com/ws";
 
 async function handleResponse(res: Response) {
   const contentType = res.headers.get("content-type");

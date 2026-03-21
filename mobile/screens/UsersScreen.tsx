@@ -15,7 +15,7 @@ type User = {
 };
 
 export default function UsersScreen({ navigation, route }: any) {
-  const { token, currentUserId } = route.params;
+  const { token, currentUserId } = route.params || {};
   const [users, setUsers] = useState<User[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [search, setSearch] = useState("");
@@ -27,6 +27,7 @@ export default function UsersScreen({ navigation, route }: any) {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    if (!token || !currentUserId) return;
     loadUsersAndConvos();
     const interval = setInterval(loadUsersAndConvos, 10000); // Polling de sécurité 10s
     

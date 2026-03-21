@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, KeyboardAvoidingView, Platform, Alert
+  StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Colors } from "../constants/Colors";
@@ -17,19 +17,21 @@ type Message = {
 };
 
 export default function ChatScreen({ route, navigation }: any) {
-  const { user, currentUser, token } = route.params;
+  const { user, currentUser, token } = route.params || {};
   const [messages, setMessages] = useState<Message[]>([]);
-  const [userStatus, setUserStatus] = useState(user.status);
+  const [userStatus, setUserStatus] = useState(user?.status || "offline");
   const [inputValue, setInputValue] = useState("");
   const [conversationId, setConversationId] = useState("");
   const currentConversationIdRef = useRef("");
   const flatListRef = useRef<FlatList>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const currentUserIdRef = useRef(currentUser._id);
+  const currentUserIdRef = useRef(currentUser?._id || "");
 
   useEffect(() => {
-    currentUserIdRef.current = currentUser._id;
-  }, [currentUser._id]);
+    if (currentUser?._id) {
+      currentUserIdRef.current = currentUser._id;
+    }
+  }, [currentUser?._id]);
 
   const getColor = (name: string) => {
     const avatarColors = ["#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#F43F5E", "#06B6D4"];
@@ -41,8 +43,9 @@ export default function ChatScreen({ route, navigation }: any) {
     let ws: WebSocket | null = null;
     let reconnectTimer: NodeJS.Timeout;
 
-    const connect = () => {
-      ws = connectWebSocket(currentUser._id);
+  const connect = () => {
+        if (!currentUser?._id) return;
+        ws = connectWebSocket(currentUser._id);
       wsRef.current = ws;
 
       ws.onopen = () => console.log("WS connecté");
@@ -230,6 +233,14 @@ export default function ChatScreen({ route, navigation }: any) {
       </View>
     );
   };
+
+  if (!user || !currentUser) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView

@@ -41,7 +41,7 @@ function MainTabs({ token, currentUser, setToken }: any) {
           tabBarIcon: ({ color }) => <MaterialIcons name="chat" size={24} color={color} />,
         }}
       >
-        {(props) => <UsersScreen {...props} route={{ params: { token, currentUserId: currentUser._id } }} />}
+        {(props) => <UsersScreen {...props} route={{ params: { token, currentUserId: currentUser?._id } }} />}
       </Tab.Screen>
       <Tab.Screen
         name="Profil"

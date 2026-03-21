@@ -18,16 +18,16 @@ func SetupRoutes(app *fiber.App, hub *ws.Hub) {
 	protected := api.Group("/", middleware.JWTAuth())
 
 	// Utilisateurs
-	protected.Get("users", controllers.GetUsers)
-	protected.Get("users/search", controllers.SearchUsers)
+	protected.Get("/users", controllers.GetUsers)
+	protected.Get("/users/search", controllers.SearchUsers)
 
 	// Conversations et Groupes
-	protected.Get("conversations", controllers.GetConversations)
-	protected.Post("conversations", controllers.CreateOrGetConversation)
-	protected.Post("groups", controllers.CreateGroup)
+	protected.Get("/conversations", controllers.GetConversations)
+	protected.Post("/conversations", controllers.CreateOrGetConversation)
+	protected.Post("/groups", controllers.CreateGroup)
 
 	// Messages
-	protected.Get("messages/:conversationId", controllers.GetMessages)
+	protected.Get("/messages/:conversationId", controllers.GetMessages)
 
 	// WebSocket (pas de JWT pour simplifier la mise en place)
 	app.Get("/ws/:userId", ws.ServeWebSocket(hub))

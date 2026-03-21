@@ -104,12 +104,16 @@ export default function ChatPage() {
 
           if (payload.type === "delete_message") {
             setMessages((prev) => prev.filter(m => m.id !== payload.message_id));
-            // Si le dernier message est supprimé, on pourrait aussi mettre à jour les conversations, 
-            // mais c'est accessoire pour le moment.
             return;
           }
 
-          if (String(payload.sender_id) === currentUserId) return;
+          // Déduplication & Mise à jour de l'ID (Passage de TempID -> MongoDB ID)
+          if (String(payload.sender_id) === currentUserId) {
+            if (payload.temp_id) {
+              setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
+            }
+            return;
+          }
           if (!payload.content) return;
 
           const newMsg: Message = {
@@ -218,8 +222,9 @@ export default function ChatPage() {
     
     const messageContent = content.trim();
 
+    const tempId = Date.now().toString();
     const newMessage: Message = {
-      id: Date.now().toString(),
+      id: tempId,
       sender_id: currentUserId,
       content: messageContent,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -234,7 +239,11 @@ export default function ChatPage() {
     setInputValue("");
     
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ conversation_id: currentConversationId, content: messageContent }));
+      wsRef.current.send(JSON.stringify({ 
+        conversation_id: currentConversationId, 
+        content: messageContent,
+        temp_id: tempId 
+      }));
     }
   };
 

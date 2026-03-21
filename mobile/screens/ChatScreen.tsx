@@ -67,7 +67,13 @@ export default function ChatScreen({ route, navigation }: any) {
             return;
           }
 
-          if (payload.sender_id === currentUser._id) return;
+          // Déduplication & Mise à jour de l'ID (TempID -> MongoID)
+          if (payload.sender_id === currentUser._id) {
+            if (payload.temp_id) {
+              setMessages(prev => prev.map(m => m.id === payload.temp_id ? { ...m, id: payload._id || payload.id } : m));
+            }
+            return;
+          }
           if (!payload.content) return;
 
           const newMsg: Message = {
@@ -132,8 +138,9 @@ export default function ChatScreen({ route, navigation }: any) {
   const handleSend = () => {
     if (!inputValue.trim()) return;
 
+    const tempId = Date.now().toString();
     const newMsg: Message = {
-      id: Date.now().toString(),
+      id: tempId,
       sender_id: currentUser._id,
       content: inputValue,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -146,6 +153,7 @@ export default function ChatScreen({ route, navigation }: any) {
       wsRef.current.send(JSON.stringify({
         conversation_id: conversationId,
         content: inputValue,
+        temp_id: tempId
       }));
     }
   };

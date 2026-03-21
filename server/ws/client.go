@@ -43,6 +43,7 @@ func (c *Client) ReadPump() {
 			ConversationID string `json:"conversation_id"`
 			Content        string `json:"content"`
 			MessageID      string `json:"message_id"` // Utilisé pour la suppression
+			TempID         string `json:"temp_id"`    // ID unique temporaire généré par le client
 		}
 		if err := json.Unmarshal(message, &payload); err != nil {
 			log.Println("Erreur parsing message:", err)
@@ -133,7 +134,17 @@ func (c *Client) ReadPump() {
 		}
 
 		// 4. Rediffusion du message structuré au format JSON
-		savedMessageJSON, _ := json.Marshal(newMessage)
+		// On crée une map pour pouvoir ajouter le TempID lors du broadcast
+		msgMap := map[string]interface{}{
+			"id":              newMessage.ID.Hex(),
+			"_id":             newMessage.ID.Hex(),
+			"sender_id":       newMessage.SenderID,
+			"content":         newMessage.Content,
+			"conversation_id": newMessage.ConversationID,
+			"created_at":      newMessage.CreatedAt,
+			"temp_id":         payload.TempID,
+		}
+		savedMessageJSON, _ := json.Marshal(msgMap)
 		c.Hub.Broadcast <- savedMessageJSON
 	}
 }
